@@ -1,0 +1,176 @@
+# Alert Rule Configuration
+alert_rules:
+  escalating_issues:
+    name: "Escalating Issues - Production"
+    description: "Alert when issues enter escalating state in production environment"
+    
+    # Trigger Configuration
+    trigger:
+      type: "event_frequency"
+      threshold: 1
+      time_window: 600  # 10 minutes in seconds
+      comparison: "gt"
+    
+    # Conditions
+    conditions:
+      - field: "event.type"
+        operator: "eq"
+        value: "error"
+      - field: "event.status"
+        operator: "eq"
+        value: "escalating"
+    
+    # Filters
+    filters:
+      - field: "environment"
+        operator: "eq"
+        value: "production"
+      - field: "event.fingerprint"
+        operator: "not_eq"
+        value: "test"
+    
+    # Actions
+    actions:
+      - type: "slack"
+        channel: "#sentry-alerts"
+        message_template: |
+          🚨 *Escalating Issue Alert*
+          
+          *Project:* {project}
+          *Environment:* {environment}
+          *Issue Title:* {issue_title}
+          *Issue URL:* {issue_url}
+          *Timestamp:* {timestamp}
+          *Event Count:* {event_count}
+          
+          *Stack Trace:* {stack_trace}
+          
+          Please investigate this escalating issue immediately.
+        
+        # Slack specific settings
+        slack:
+          username: "Sentry Alert Bot"
+          icon_emoji: ":warning:"
+          link_names: true
+          unfurl_links: false
+    
+    # Notification Settings
+    notifications:
+      frequency: 600  # 10 minutes in seconds
+      throttle: true
+      throttle_window: 3600  # 1 hour in seconds
+      max_alerts_per_hour: 6
+    
+    # Escalation Settings
+    escalation:
+      enabled: true
+      levels:
+        - duration: 300  # 5 minutes
+          action: "notify_team_lead"
+        - duration: 900  # 15 minutes
+          action: "notify_manager"
+        - duration: 1800  # 30 minutes
+          action: "notify_emergency_contact"
+
+# Slack Integration Configuration
+slack:
+  workspace_id: "{SLACK_WORKSPACE_ID}"
+  channel_name: "sentry-alerts"
+  bot_token: "{SLACK_BOT_TOKEN}"
+  
+  # Message Templates
+  templates:
+    escalating_alert: |
+      🚨 *Escalating Issue Alert*
+      
+      *Project:* {project}
+      *Environment:* {environment}
+      *Issue:* {issue_title}
+      *URL:* {issue_url}
+      *Time:* {timestamp}
+      *Event Count:* {event_count}
+      
+      *Stack Trace Preview:*
+      ```
+      {stack_trace_preview}
+      ```
+      
+      Please investigate this escalating issue immediately.
+    
+    test_message: |
+      ✅ *Sentry Alert Test*
+      
+      This is a test message to verify the Slack integration is working correctly.
+      
+      *Project:* {project}
+      *Time:* {timestamp}
+    
+    error_message: |
+      ❌ *Alert Creation Error*
+      
+      Failed to create alert rule for project: {project}
+      *Error:* {error_message}
+      *Time:* {timestamp}
+
+# Alert Rule Templates for Different Scenarios
+templates:
+  # High Error Rate Alert
+  high_error_rate:
+    name: "High Error Rate Alert"
+    description: "Alert when error rate exceeds threshold"
+    conditions:
+      - field: "event.type"
+        operator: "eq"
+        value: "error"
+    filters:
+      - field: "environment"
+        operator: "eq"
+        value: "production"
+    actions:
+      - type: "slack"
+        channel: "#sentry-alerts"
+        message_template: |
+          📊 *High Error Rate Alert*
+          
+          *Project:* {project}
+          *Environment:* {environment}
+          *Error Rate:* {error_rate}%
+          *Threshold:* {threshold}%
+          *Time Window:* {time_window}
+          
+          Please investigate the increased error rate.
+  
+  # Critical Issue Alert
+  critical_issue:
+    name: "Critical Issue Alert"
+    description: "Alert for critical issues with high impact"
+    conditions:
+      - field: "event.level"
+        operator: "eq"
+        value: "fatal"
+    filters:
+      - field: "environment"
+        operator: "eq"
+        value: "production"
+    actions:
+      - type: "slack"
+        channel: "#sentry-alerts"
+        message_template: |
+          🔥 *Critical Issue Alert*
+          
+          *Project:* {project}
+          *Environment:* {environment}
+          *Issue Level:* {issue_level}
+          *Issue Title:* {issue_title}
+          *URL:* {issue_url}
+          *Time:* {timestamp}
+          
+          This is a critical issue requiring immediate attention!
+
+# Default Settings
+defaults:
+  alert_frequency: 600  # 10 minutes
+  environment: "production"
+  slack_channel: "#sentry-alerts"
+  max_retries: 3
+  timeout: 30 
