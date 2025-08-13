@@ -21,10 +21,19 @@ class AlertManager:
         self.logger = logging.getLogger(__name__)
         
         # Load configuration from environment
-        self.alert_frequency = int(os.getenv('ALERT_FREQUENCY', '10'))
+        self.alert_frequency = int(os.getenv('ALERT_FREQUENCY', '30'))
         self.alert_environment = os.getenv('ALERT_ENVIRONMENT', 'production')
         self.alert_state = os.getenv('ALERT_STATE', 'escalating')
         self.slack_channel = os.getenv('SLACK_CHANNEL_NAME', 'sentry-alerts')
+        # Enable updating existing rules when rerunning
+        self.update_existing = os.getenv('UPDATE_EXISTING', 'false').lower() in ('1', 'true', 'yes', 'y')
+        
+        # Define production environment variations to match
+        self.production_envs = [
+            'ECS_PROD', 'PROD', 'PRODUCTION', 'Production', 'bulk_upload_prod',
+            'bw_production', 'prod', 'production', 'production-email-worker',
+            'production-push-worker', 'production-sms-worker', 'production-worker', 'prodution'
+        ]
         
         # Detect Slack integration via Sentry API; allow env override for channel name
         self.slack_integration = None
@@ -47,22 +56,32 @@ class AlertManager:
             rule_name = f"Escalating Issues - {self.alert_environment.title()}"
             existing_rule_id = self.sentry_client.check_alert_rule_exists(project_slug, rule_name)
             
-            if existing_rule_id:
-                self.logger.info(f"Alert rule already exists for project {project_slug}: {existing_rule_id}")
-                return True
-            
-            # Create alert rule data
+            # Build the desired rule definition
             rule_data = self._build_escalating_alert_rule(project_slug, rule_name)
             
-            # Create the alert rule
-            response = self.sentry_client.create_alert_rule(project_slug, rule_data)
-            
-            if response and response.get('id'):
-                self.logger.info(f"Successfully created alert rule for project {project_slug}: {response['id']}")
-                return True
+            if existing_rule_id:
+                if self.update_existing:
+                    # Update existing rule with new conditions (no ongoing noise)
+                    response = self.sentry_client.update_alert_rule(project_slug, existing_rule_id, rule_data)
+                    if response:
+                        self.logger.info(f"Updated existing alert rule for project {project_slug}: {existing_rule_id}")
+                        return True
+                    else:
+                        self.logger.error(f"Failed to update alert rule for project {project_slug}: {existing_rule_id}")
+                        return False
+                else:
+                    self.logger.info(f"Alert rule already exists for project {project_slug}: {existing_rule_id}")
+                    return True
             else:
-                self.logger.error(f"Failed to create alert rule for project {project_slug}: Invalid response")
-                return False
+                # Create new alert rule
+                response = self.sentry_client.create_alert_rule(project_slug, rule_data)
+                
+                if response and response.get('id'):
+                    self.logger.info(f"Successfully created alert rule for project {project_slug}: {response['id']}")
+                    return True
+                else:
+                    self.logger.error(f"Failed to create alert rule for project {project_slug}: Invalid response")
+                    return False
                 
         except Exception as e:
             self.logger.error(f"Error creating alert rule for project {project_slug}: {e}")
@@ -75,21 +94,66 @@ class AlertManager:
         allowed_interval = self._resolve_allowed_interval(project_slug)
         rule_data = {
             "name": rule_name,
-            "description": f"Alert when issues enter escalating state in {self.alert_environment} environment",
-            "actionMatch": "all",
+            "description": f"Alert for new issues, escalating state changes, and currently escalating issues in production environments",
+            "actionMatch": "any",  # fire if any condition matches
             "filterMatch": "all",
             "frequency": self.alert_frequency,
             "environment": self.alert_environment,
-            "conditions": [
+            "conditions": [],
+            "filters": [],
+            "actions": []
+        }
+        
+        # Try to discover semantic conditions to avoid ongoing noise
+        new_issue_condition_id = None
+        escalating_condition_id = None
+        escalating_state_condition_id = None
+        try:
+            config = self.sentry_client.get_rule_configuration(project_slug)
+            for node in config.get('conditions', []):
+                label = (node.get('label') or '').lower()
+                node_id = (node.get('id') or '').lower()
+                if not new_issue_condition_id and (
+                    'new issue' in label or 'firstseen' in node_id or 'first_seen' in node_id
+                ):
+                    new_issue_condition_id = node.get('id')
+                if not escalating_condition_id and (
+                    'escalat' in label or 'escalat' in node_id
+                ):
+                    escalating_condition_id = node.get('id')
+                # Look for "Issue is escalating" condition (current state)
+                if not escalating_state_condition_id and (
+                    'issue is escalating' in label or 'issue escalating' in label or 'escalating state' in label
+                ):
+                    escalating_state_condition_id = node.get('id')
+        except Exception as e:
+            self.logger.debug(f"Failed to discover condition IDs for {project_slug}: {e}")
+        
+        # Add semantic conditions if found
+        if new_issue_condition_id:
+            rule_data["conditions"].append({"id": new_issue_condition_id})
+        if escalating_condition_id:
+            rule_data["conditions"].append({"id": escalating_condition_id})
+        if escalating_state_condition_id:
+            rule_data["conditions"].append({"id": escalating_state_condition_id})
+        
+        # Fallback: if no semantic conditions found, use minimal frequency (less noisy)
+        if not rule_data["conditions"]:
+            rule_data["conditions"] = [
                 {
                     "id": "sentry.rules.conditions.event_frequency.EventFrequencyCondition",
                     "value": 1,
                     "interval": allowed_interval
                 }
-            ],
-            "filters": [],
-            "actions": []
-        }
+            ]
+        
+        # Add environment filter to match any production variation
+        rule_data["filters"].append({
+            "id": "sentry.rules.filters.event_attribute.EventAttributeFilter",
+            "attribute": "environment",
+            "match": "in",
+            "value": self.production_envs
+        })
         
         # Add Slack action if Slack is enabled
         if self.slack_enabled:

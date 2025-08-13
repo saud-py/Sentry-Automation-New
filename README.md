@@ -53,7 +53,7 @@ The automation addresses Sentry's limitation of not supporting global alert rule
 ## Project Structure
 
 ```
-saud/
+Nitesh/
 ├── README.md                 # This file
 ├── requirements.txt          # Python dependencies
 ├── .env.example             # Environment variables template
