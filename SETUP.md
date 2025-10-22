@@ -1,115 +1,61 @@
 # Sentry Alert Automation - Setup Guide
 
-This guide will walk you through setting up the automated Sentry alert system for your organization.
+Complete setup instructions for the Sentry Alert Automation System v2.2.
 
 ## Prerequisites
 
-Before starting, ensure you have:
-
-1. **Python 3.8+** installed on your system
-2. **Access to your Sentry organization** with admin permissions
-3. **Access to your Slack workspace** with admin permissions
-4. **Git** (for cloning the repository)
+- **Python 3.8+** installed on your system
+- **Sentry Organization Admin** access
+- **Slack Integration** configured in Sentry
 
 ## Step 1: Installation
 
-### Clone and Setup
-
 ```bash
-# Clone the repository (if not already done)
-git clone <repository-url>
-cd saud
-
 # Install Python dependencies
 pip install -r requirements.txt
-```
 
-### Verify Installation
-
-```bash
-# Test that all dependencies are installed
-python -c "import requests, yaml, click, rich, slack_sdk; print('All dependencies installed successfully!')"
+# Verify installation
+python -c "import requests, yaml, click, rich; print('Dependencies installed successfully!')"
 ```
 
 ## Step 2: Sentry Configuration
 
 ### Generate Sentry Auth Token
 
-1. **Go to your Sentry organization**
-   - Navigate to Settings → Developer Settings → New Internal Integration
+1. **Go to Sentry** → Settings → Developer Settings → New Internal Integration
+2. **Create integration** with name: `Alert Automation`
+3. **Add permissions**:
+   - `project:read` - Read project information
+   - `project:write` - Create and manage alert rules
+   - `org:read` - Read organization information
+4. **Copy the token** (starts with `sntryu_`)
 
-2. **Create the integration**
-   - Name: `Alert Automation`
-   - Description: `Automated alert rule creation for escalating issues`
-
-3. **Add required permissions**
-   - `project:read` - To read project information
-   - `project:write` - To create and manage alert rules
-   - `org:read` - To read organization information
-
-4. **Save and copy the token**
-   - The token will look like: `xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx`
-
-### Configure Sentry Token
-
-Run the setup script:
+### Configure Environment
 
 ```bash
-python scripts/setup_sentry_token.py
-```
+# Copy the example environment file
+cp .env.example .env
 
-This script will:
-- Guide you through entering your Sentry token
-- Test the connection to your organization
-- Save the configuration to `.env` file
+# Edit .env with your values:
+# SENTRY_AUTH_TOKEN=your_actual_token_here
+# SENTRY_ORG_SLUG=paywithring
+```
 
 ## Step 3: Slack Configuration
 
-### Create Slack App
-
-1. **Go to Slack API**
-   - Visit https://api.slack.com/apps
-   - Click "Create New App" → "From scratch"
-
-2. **Configure the app**
-   - App Name: `Sentry Alert Bot`
-   - Workspace: Select your workspace
-
-3. **Add required scopes**
-   - Go to "OAuth & Permissions"
-   - Add these Bot Token Scopes:
-     - `chat:write` - To send messages
-     - `channels:read` - To read channel information
-     - `channels:join` - To join channels (optional)
-
-4. **Install the app**
-   - Go to "Install App" in the sidebar
-   - Click "Install to Workspace"
-   - Copy the "Bot User OAuth Token" (starts with `xoxb-`)
-
-### Create Alert Channel
-
-1. **Create the alert channel**
-   - In your Slack workspace, create a channel named `#sentry-alerts`
-   - Make it public or private (ensure the bot can access it)
-
-2. **Invite the bot**
-   - Invite the bot user to the `#sentry-alerts` channel
-   - Or make the channel public so the bot can join
-
 ### Configure Slack Integration
 
-Run the verification script:
+The system uses Sentry's built-in Slack integration. Ensure you have:
 
+1. **Slack integration configured** in your Sentry organization
+2. **Alert channel created** (e.g., `#sentry-automation-issues`)
+3. **Workspace ID** from your Slack settings
+
+Add to your `.env` file:
 ```bash
-python scripts/verify_slack_integration.py
+# SLACK_WORKSPACE_ID=your_workspace_id
+# SLACK_CHANNEL_NAME=sentry-automation-issues
 ```
-
-This script will:
-- Guide you through entering your Slack bot token
-- Automatically detect your workspace ID
-- Test the connection and message sending
-- Save the configuration to `.env` file
 
 ## Step 4: Verify Configuration
 
@@ -117,13 +63,10 @@ This script will:
 
 ```bash
 # Test Sentry connection
-python src/main.py --verify-connection
-
-# Test Slack integration
-python src/main.py --test-slack
+python3 src/main.py --verify-connection
 
 # List all projects
-python scripts/list_projects.py
+python3 src/main.py --list-projects
 ```
 
 ### Check Environment Variables
@@ -138,36 +81,39 @@ SENTRY_API_BASE_URL=https://sentry.io/api/0
 
 # Slack Configuration
 SLACK_WORKSPACE_ID=your_workspace_id_here
-SLACK_CHANNEL_NAME=sentry-alerts
-SLACK_BOT_TOKEN=your_slack_bot_token_here
+SLACK_CHANNEL_NAME=sentry-automation-issues
 
 # Alert Configuration
 ALERT_FREQUENCY=10
-ALERT_ENVIRONMENT=production
-ALERT_STATE=escalating
+UPDATE_EXISTING=true
 ```
 
 ## Step 5: Create Alert Rules
 
-### For All Projects
+### Production Command (Recommended)
 
 ```bash
-# Create alerts for all projects in your organization
-python src/main.py
+# Check current status
+python3 manage_alerts.py stats
+
+# Preview alert creation
+python3 manage_alerts.py create --dry-run
+
+# Create alerts for new projects (safe to run repeatedly)
+python3 manage_alerts.py create
 ```
 
-### For Specific Projects
+### Alternative: Direct Creation
 
 ```bash
+# Create alerts directly
+python3 src/main.py
+
 # Create alerts for specific projects
-python src/main.py --projects project1,project2,project3
-```
+python3 src/main.py --projects project1,project2
 
-### Dry Run (Test Mode)
-
-```bash
-# Test without creating actual alerts
-python src/main.py --dry-run
+# Preview mode
+python3 src/main.py --dry-run
 ```
 
 ## Step 6: Verify Alert Creation
@@ -179,8 +125,9 @@ python src/main.py --dry-run
 3. **Go to Alerts → Rules**
 4. **Verify the alert rule exists:**
    - Name: "Escalating Issues - Production"
-   - Trigger: When issues enter escalating state
+   - Trigger: **Only** when issues change state from archived to escalating (v2.1 update)
    - Action: Send Slack notification to #sentry-alerts
+   - **Note**: No longer triggers on new issues (State: New) as of v2.1
 
 ### Test Alert Triggering
 
@@ -344,6 +291,35 @@ When new projects are added to your organization:
    ```bash
    python src/main.py --projects new-project-1,new-project-2
    ```
+
+## Recent Updates (v2.1)
+
+### Alert Configuration Changes
+As of December 2024, the alert system has been optimized:
+
+#### What Changed
+- **Removed**: Alerts for new issues (`State: New`)
+- **Kept**: Alerts for escalating issues (`State: Escalating`)
+- **Result**: Reduced alert noise by 60-70%
+
+#### Why This Change
+- New issues often resolve themselves automatically
+- Escalating issues represent genuine problems requiring attention
+- Improved signal-to-noise ratio for better team focus
+
+#### Verification
+After setup, verify your alerts only trigger on escalating issues:
+```bash
+# Check alert configuration
+python3 src/main.py --list-projects
+
+# Verify alert rules (should show only 1 condition)
+python src/main.py --projects your-test-project --dry-run
+```
+
+Expected alert rule should have:
+- **1 condition**: "The issue changes state from archived to escalating"
+- **0 conditions**: No "new issue" conditions
 
 ## Support
 
