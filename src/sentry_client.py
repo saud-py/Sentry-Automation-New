@@ -110,10 +110,59 @@ class SentryClient:
         return self._make_request('GET', endpoint)
     
     def get_projects(self) -> List[Dict[str, Any]]:
-        """Get all projects in the organization."""
-        endpoint = f'/organizations/{self.org_slug}/projects/'
-        response = self._make_request('GET', endpoint)
-        return self._extract_data(response)
+        """Get all projects in the organization with pagination support."""
+        url = f"{self.api_base_url}/organizations/{self.org_slug}/projects/"
+        projects = []
+        cursor = None
+        page = 1
+        
+        while True:
+            # Set up parameters for pagination
+            params = {"cursor": cursor} if cursor else {}
+            
+            self.logger.info(f"Fetching projects page {page} (cursor: {cursor})")
+            
+            try:
+                # Make request using the session
+                response = self.session.get(url, params=params)
+                response.raise_for_status()
+                
+                # Get projects data
+                data = response.json()
+                if not data:
+                    self.logger.info("No more projects found, stopping pagination")
+                    break
+                
+                projects.extend(data)
+                self.logger.info(f"Page {page}: Found {len(data)} projects (Total so far: {len(projects)})")
+                
+                # Check for pagination using response.links (same as reference code)
+                next_link = response.links.get('next')
+                if next_link and next_link.get('results') == 'true':
+                    # Extract cursor from the next link URL
+                    from urllib.parse import urlparse, parse_qs
+                    parsed_url = urlparse(next_link['url'])
+                    query_params = parse_qs(parsed_url.query)
+                    cursor = query_params.get('cursor', [None])[0]
+                    
+                    if cursor:
+                        page += 1
+                        # Add small delay to respect rate limits
+                        time.sleep(0.1)
+                        continue
+                    else:
+                        self.logger.info("No cursor found in next link, stopping pagination")
+                        break
+                else:
+                    self.logger.info("No next link found, pagination complete")
+                    break
+                    
+            except Exception as e:
+                self.logger.error(f"Error fetching projects page {page}: {e}")
+                break
+        
+        self.logger.info(f"Successfully fetched {len(projects)} total projects across {page} pages")
+        return projects
     
     def get_project(self, project_slug: str) -> Dict[str, Any]:
         """Get information about a specific project."""
@@ -144,17 +193,47 @@ class SentryClient:
     def delete_alert_rule(self, project_slug: str, rule_id: str) -> bool:
         """Delete an alert rule."""
         endpoint = f'/projects/{self.org_slug}/{project_slug}/rules/{rule_id}/'
+        url = f"{self.api_base_url.rstrip('/')}/{endpoint.lstrip('/')}"
+        
         try:
-            self._make_request('DELETE', endpoint)
-            return True
-        except Exception as e:
+            response = self.session.request('DELETE', url)
+            
+            # Debug logging
+            self.logger.debug(f"DELETE Request URL: {url}")
+            self.logger.debug(f"DELETE Response Status: {response.status_code}")
+            self.logger.debug(f"DELETE Response Text: {response.text}")
+            
+            # For DELETE requests, success is indicated by status code, not response content
+            if response.status_code in [200, 204]:
+                self.logger.info(f"Successfully deleted alert rule {rule_id}")
+                return True
+            else:
+                response.raise_for_status()
+                return False
+                
+        except requests.exceptions.RequestException as e:
             self.logger.error(f"Failed to delete alert rule {rule_id}: {e}")
             return False
+        except Exception as e:
+            self.logger.error(f"Unexpected error deleting alert rule {rule_id}: {e}")
+            return False
     
-    def get_alert_rule(self, project_slug: str, rule_id: str) -> Dict[str, Any]:
+    def get_alert_rule(self, project_slug: str, rule_id: str) -> Optional[Dict[str, Any]]:
         """Get a specific alert rule."""
         endpoint = f'/projects/{self.org_slug}/{project_slug}/rules/{rule_id}/'
-        return self._make_request('GET', endpoint)
+        try:
+            return self._make_request('GET', endpoint)
+        except Exception as e:
+            self.logger.error(f"Failed to get alert rule {rule_id}: {e}")
+            return None
+    
+    def alert_rule_exists_by_id(self, project_slug: str, rule_id: str) -> bool:
+        """Check if an alert rule exists by ID."""
+        try:
+            rule = self.get_alert_rule(project_slug, rule_id)
+            return rule is not None
+        except Exception:
+            return False
     
     def check_alert_rule_exists(self, project_slug: str, rule_name: str) -> Optional[str]:
         """Check if an alert rule with the given name exists and return its ID."""
