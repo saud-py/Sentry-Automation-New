@@ -1,0 +1,39 @@
+# Alert Configuration (v2.2) - Multi-Environment Support
+alert_rules:
+  escalating_issues:
+    # Environment-specific naming: "Escalating Issues - {environment}"
+    name_template: "Escalating Issues - {environment}"
+    description: "Alert when issues change state from archived to escalating"
+    
+    # v2.2: Only escalating issues (no new issue alerts to reduce noise)
+    conditions:
+      - type: "issue_state_change"
+        description: "The issue changes state from archived to escalating"
+        id: "sentry.rules.conditions.issue_state_change.IssueStateChangeCondition"
+        fromState: "archived"
+        toState: "escalating"
+    
+    # Environment filter (dynamically set per environment)
+    filters:
+      - field: "environment"
+        operator: "eq"
+        value: "{environment}"  # Replaced dynamically
+    
+    # Slack notification action
+    actions:
+      - type: "slack"
+        workspace_id: "{SLACK_WORKSPACE_ID}"
+        channel: "{SLACK_CHANNEL_NAME}"
+        tags: "environment,transaction"
+
+# Slack Configuration
+slack:
+  workspace_id: "{SLACK_WORKSPACE_ID}"
+  channel_name: "sentry-automation-issues"
+  action_id: "sentry.integrations.slack.notify_action.SlackNotifyServiceAction"
+
+# Default Settings
+defaults:
+  alert_frequency: 10  # minutes
+  environment_filter: true
+  update_existing: true 
