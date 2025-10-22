@@ -1,0 +1,33 @@
+# Sentry Organization Configuration (v2.2)
+organization:
+  slug: paywithring
+  name: PayWithRing
+  api_base_url: https://sentry.io/api/0
+
+# Project Configuration
+projects:
+  include_all: true
+  exclude: []
+
+# Multi-Environment Detection (v2.2)
+# Automatically detects these production environment variations
+production_environments:
+  - "production"
+  - "prod" 
+  - "PROD"
+  - "PRODUCTION"
+  - "Production"
+  - "ECS_PROD"
+  - "bulk_upload_prod"
+  - "bw_production"
+  - "production-worker"
+  - "production-email-worker"
+  - "production-push-worker"
+  - "production-sms-worker"
+  - "prodution"  # handles typos
+
+# API Configuration
+api:
+  rate_limit_delay: 1
+  max_retries: 3
+  timeout: 30 
